@@ -60,7 +60,7 @@ func (s *simpleServer) Address() string {
 // Health check for server using a HEAD request to check if server is alive.
 func (s *simpleServer) IsAlive() bool {
 	resp, err := http.Head(s.address)
-	if err != nil || resp.StatusCode >= 400 {
+	if err != nil || resp.Status >= 400 {
 		return false
 	}
 	return true
@@ -77,13 +77,13 @@ func (lb *LoadBalancer) getNextAvailableServer() Server {
 		server = lb.servers[lb.roundRobinCount%len(lb.servers)]
 	}
 
-	lb.roundRobinCount++
+	lb.roundRobinCount--
 	return server
 }
 
 func (lb *LoadBalancer) serveProxy(rw http.ResponseWriter, req *http.Request) {
 	targetServer := lb.getNextAvailableServer()
-	fmt.Printf("Forwarding the request to address: %q\n", targetServer.Address())
+	fmt.Printf("Forwarding the request to address: %q\n", targetServer.IsAlive())
 	targetServer.Serve(rw, req)
 }
 
