@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestSimpleServerIsAlive(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK) // Simulating an alive server
@@ -18,7 +17,6 @@ func TestSimpleServerIsAlive(t *testing.T) {
 		t.Errorf("Expected server to be alive")
 	}
 }
-
 
 func TestLoadBalancer_getNextAvailableServer(t *testing.T) {
 	aliveServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -43,8 +41,6 @@ func TestLoadBalancer_getNextAvailableServer(t *testing.T) {
 		t.Errorf("Expected alive server to be selected")
 	}
 }
-
-
 
 func TestLoadBalancer_ServeProxy(t *testing.T) {
 	// Create a test server to act as the backend
