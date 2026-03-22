@@ -1,96 +1,140 @@
-# Simple Load Balancer with Reverse Proxy and Graceful Shutdown
 
-This Go application implements a simple HTTP load balancer with round-robin load distribution, reverse proxying, logging middleware, and a graceful shutdown mechanism.
+# Email Domain Validator
+
+A command-line tool to check email domain security records (MX, SPF, DMARC).  
+Written in both **Go** and **Rust**, it reads a list of domain names from standard input and outputs a CSV report containing DNS lookup results.
 
 ## Features
 
-- **Round-Robin Load Balancing**: Distributes incoming HTTP requests across multiple backend servers in a round-robin manner.
-- **Health Checks**: Verifies server availability using `HEAD` requests to ensure only healthy servers receive traffic.
-- **Reverse Proxying**: Uses `httputil.ReverseProxy` to forward incoming requests to backend servers.
-- **Request Logging**: Logs each incoming request's HTTP method and path for easy monitoring.
-- **Graceful Shutdown**: Ensures a clean shutdown by listening for interrupt signals and allowing ongoing requests to complete.
-
-## Components
-
-### `simpleServer`
-Represents a server instance that forwards incoming requests to a specified backend server. It performs health checks and proxies requests using `httputil.ReverseProxy`.
-
-#### Methods
-- `Address()`: Returns the server's address.
-- `IsAlive()`: Checks server health by sending a `HEAD` request.
-- `Serve()`: Forwards requests to the backend server.
-
-### `LoadBalancer`
-Manages a list of servers, selecting a healthy server in round-robin fashion for each incoming request.
-
-#### Methods
-- `getNextAvailableServer()`: Returns the next available and healthy server.
-- `serveProxy()`: Selects a server and forwards the request to it.
-
-### Middleware
-- **Logging Middleware**: Logs each request to standard output.
+- **MX Records** – Verify if the domain has mail exchange servers.
+- **SPF Records** – Detect Sender Policy Framework (TXT) records.
+- **DMARC Records** – Check for DMARC policies under `_dmarc.<domain>`.
+- **Concurrent Processing** – Configurable number of workers for fast bulk checks.
+- **Timeout Control** – Set a per-lookup timeout to avoid hanging.
+- **CSV Output** – Results can be saved to a file or printed to stdout.
+- **Error Handling** – Errors are collected per domain and included in the output.
 
 ## Usage
 
-1. **Define Servers**: Specify backend server URLs by creating `simpleServer` instances.
-2. **Initialize Load Balancer**: Instantiate a `LoadBalancer` with a list of servers.
-3. **Run Server**: Start the HTTP server on the specified port (`8000` by default) with graceful shutdown support.
+Both versions accept the same command-line arguments.
 
-## Graceful Shutdown
-The server listens for an interrupt signal (e.g., `Ctrl+C`) and initiates a shutdown sequence that waits up to 5 seconds for in-progress requests to complete.
+| Flag               | Description                                | Default      |
+|--------------------|--------------------------------------------|--------------|
+| `-output`, `-o`    | Output CSV file (optional)                 | (stdout)     |
+| `-concurrency`, `-c`| Number of concurrent workers               | `10`         |
+| `-timeout`, `-t`   | Timeout for DNS lookups (e.g., `5s`, `1m`) | `10s`        |
 
-## Code Example
+Domains are read **one per line** from **stdin**.
 
-```go
-package main
+### Examples
 
-// Main entry point of the application
-func main() {
-    // Define backend servers
-    servers := []Server{
-        newSimpleServer("https://www.example.com"),
-        newSimpleServer("https://www.bing.com"),
-        newSimpleServer("https://www.google.com"),
-    }
+Check a list of domains from `domains.txt` and print results to the console:
 
-    // Initialize load balancer
-    lb := NewLoadBalancer("8000", servers)
+```bash
+cat domains.txt | ./emailVal
+```
 
-    // Define HTTP handler
-    handleRedirect := func(rw http.ResponseWriter, req *http.Request) {
-        lb.serveProxy(rw, req)
-    }
+Same, but save results to `report.csv` using 20 workers and a 5‑second timeout:
 
-    // Setup server and graceful shutdown
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", handleRedirect)
-    loggedMux := loggingMiddleware(mux)
+```bash
+cat domains.txt | ./emailVal --output report.csv --concurrency 20 --timeout 5s
+```
 
-    srv := &http.Server{
-        Addr:    ":8000",
-        Handler: loggedMux,
-    }
+## Go Version
 
-    // Start server
-    go func() {
-        fmt.Printf("Serving requests at 'localhost:%s'\n", lb.port)
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            handleErr(err)
-        }
-    }()
+### Build
 
-    // Graceful shutdown logic
-    stop := make(chan os.Signal, 1)
-    signal.Notify(stop, os.Interrupt)
-    <-stop
-    fmt.Println("\nShutting down the server...")
+```bash
+go build -o emailVal main.go
+```
 
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
+### Run
 
-    if err := srv.Shutdown(ctx); err != nil {
-        fmt.Printf("Shutdown error: %v\n", err)
-    } else {
-        fmt.Println("Server gracefully stopped.")
-    }
-}
+```bash
+./emailVal < domains.txt
+```
+
+### Dependencies
+
+Uses only the standard library (`net`, `context`, `encoding/csv`, etc.). No external dependencies required.
+
+## Rust Version
+
+### Build
+
+Ensure you have [Rust and Cargo](https://rustup.rs/) installed, then:
+
+```bash
+cargo build --release
+```
+
+The binary will be placed in `target/release/emailVal`.
+
+### Dependencies
+
+Add the following to your `Cargo.toml`:
+
+```toml
+[package]
+name = "emailVal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+humantime = "2"
+tokio = { version = "1", features = ["full"] }
+trust-dns-resolver = "0.23"
+anyhow = "1"
+```
+
+### Run
+
+```bash
+./target/release/emailVal < domains.txt
+```
+
+## Output Format
+
+The tool outputs a CSV with the following columns:
+
+| Column          | Description                                        |
+|-----------------|----------------------------------------------------|
+| Domain          | The queried domain name                            |
+| Has MX          | `true` if at least one MX record exists            |
+| Has SPF         | `true` if a TXT record starting with `v=spf1` found|
+| SPF Record      | The full SPF TXT value (if any)                    |
+| Has DMARC       | `true` if a DMARC record (`v=DMARC1`) exists       |
+| DMARC Record    | The full DMARC TXT value (if any)                  |
+| MX Records      | Semi‑colon separated list of MX hosts              |
+| Errors          | Semi‑colon separated error messages (if any)       |
+
+## Example
+
+Input file `domains.txt`:
+
+```
+example.com
+google.com
+nonexistent.xyz
+```
+
+Command:
+
+```bash
+cat domains.txt | ./emailVal -o result.csv
+```
+
+Output `result.csv`:
+
+```csv
+Domain,Has MX,Has SPF,SPF Record,Has DMARC,DMARC Record,MX Records,Errors
+example.com,true,false,,false,,,MX lookup error: no record found
+google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject; sp=reject; rua=mailto:mailauth-reports@google.com,aspmx.l.google.com;alt1.aspmx.l.google.com;alt2.aspmx.l.google.com;alt3.aspmx.l.google.com;alt4.aspmx.l.google.com,
+nonexistent.xyz,false,false,,false,,,MX lookup error: no such host;SPF lookup error: no such host;DMARC lookup error: no such host
+```
+
+## License
+
+This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
